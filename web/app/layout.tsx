@@ -13,8 +13,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SPK Tomat Terbaik - SAW",
-  description: "Sistem Pendukung Keputusan Pemilihan Tomat Berkualitas Tinggi",
+  title: "SPK Tomat Terbaik — Metode SAW",
+  description:
+    "Sistem Pendukung Keputusan pemilihan tomat berkualitas tinggi menggunakan metode Simple Additive Weighting (SAW).",
+  applicationName: "SPK Tomat Terbaik",
 };
 
 export default function RootLayout({
@@ -23,8 +25,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="id" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html
+      lang="id"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <body className="bg-cream flex min-h-full flex-col font-sans text-stone-800 antialiased">
+        {children}
+      </body>
     </html>
   );
 }

@@ -1,7 +1,29 @@
-// app/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Calendar,
+  ChevronDown,
+  FileText,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  User,
+  X,
+} from "lucide-react";
+import {
+  clampNilai,
+  Kriteria,
+  KRITERIA_DEFAULT,
+  Tomat,
+  VIEW_LABELS,
+  ViewId,
+} from "@/lib/types";
+import { generateSampleTomat } from "@/lib/data";
+import { useLocalStorageRaw, useToday } from "@/lib/hooks";
+import ToastProvider from "@/components/Toast";
+import ConfirmProvider from "@/components/ConfirmDialog";
 import Sidebar from "@/components/Sidebar";
 import DashboardView from "@/components/DashboardView";
 import DataTomatView from "@/components/DataTomatView";
@@ -11,108 +33,307 @@ import PerhitunganSAWView from "@/components/PerhitunganSAWView";
 import HasilRankingView from "@/components/HasilRankingView";
 import GaleriTomatView from "@/components/GaleriTomatView";
 import ImportJsonView from "@/components/ImportJsonView";
-import { Menu, Calendar, User, ChevronDown } from "lucide-react";
+import LaporanView from "@/components/LaporanView";
+import PengaturanView from "@/components/PengaturanView";
 
-export type Tomat = {
-  id: number;
-  kode: string;
-  nama: string;
-  berat: number;
-  warna: number;
-  kesegaran: number;
-  cacat: number;
+const STORAGE_KEY = "spk-tomat-terbaik:v1";
+const SAMPLE_TOMAT = generateSampleTomat();
+
+type StoredState = {
+  tomatList: Tomat[];
+  kriteriaList: Kriteria[];
+  rowsPerPage: number;
 };
 
-export type Kriteria = {
-  id: string;
-  nama: string;
-  bobot: number;
-  tipe: "benefit" | "cost";
-};
-
-const generateDataTomat = (): Tomat[] => {
-  const data: Tomat[] = [];
-  for (let i = 1; i <= 50; i++) {
-    data.push({
-      id: i,
-      kode: `T${String(i).padStart(3, "0")}`,
-      nama: `Tomat ${i}`,
-      berat: Math.floor(Math.random() * (210 - 150 + 1) + 150),
-      warna: Math.floor(Math.random() * (5 - 3 + 1) + 3),
-      kesegaran: Math.floor(Math.random() * (10 - 6 + 1) + 6),
-      cacat: Math.floor(Math.random() * (10 - 1 + 1) + 1),
+/** Parse & sanitasi data tersimpan; null bila tidak ada / rusak. */
+function parseStored(raw: string | null): StoredState | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.tomatList) || !Array.isArray(parsed?.kriteriaList)) {
+      return null;
+    }
+    const tomatList: Tomat[] = (parsed.tomatList as unknown[])
+      .filter((r): r is Record<string, unknown> => typeof r === "object" && r !== null)
+      .map((r, idx) => ({
+        id: Number.isFinite(Number(r.id)) ? Number(r.id) : idx + 1,
+        kode: typeof r.kode === "string" ? r.kode : `T${String(idx + 1).padStart(3, "0")}`,
+        nama: typeof r.nama === "string" ? r.nama : `Tomat ${idx + 1}`,
+        berat: clampNilai("berat", Number(r.berat)),
+        warna: clampNilai("warna", Number(r.warna)),
+        kesegaran: clampNilai("kesegaran", Number(r.kesegaran)),
+        cacat: clampNilai("cacat", Number(r.cacat)),
+      }));
+    const kriteriaImpor = parsed.kriteriaList as Partial<Kriteria>[];
+    const kriteriaList: Kriteria[] = KRITERIA_DEFAULT.map((def) => {
+      const match = kriteriaImpor.find((k) => k?.id === def.id);
+      if (!match) return { ...def };
+      const bobot = Number(match.bobot);
+      return {
+        ...def,
+        bobot: Number.isFinite(bobot) ? Math.min(1, Math.max(0, bobot)) : def.bobot,
+        tipe: match.tipe === "cost" ? "cost" : "benefit",
+      };
     });
+    const rows = Number(parsed.rowsPerPage);
+    const rowsPerPage = [10, 15, 25, 50].includes(rows) ? rows : 10;
+    return { tomatList, kriteriaList, rowsPerPage };
+  } catch {
+    return null;
   }
-  return data;
-};
+}
 
-export default function Home() {
-  const [currentView, setCurrentView] = useState("dashboard");
-  const [tomatList, setTomatList] = useState<Tomat[]>(generateDataTomat);
-  const [kriteriaList, setKriteriaList] = useState<Kriteria[]>([
-    { id: "berat", nama: "Berat (g)", bobot: 0.3, tipe: "benefit" },
-    { id: "warna", nama: "Warna (1-5)", bobot: 0.2, tipe: "benefit" },
-    { id: "kesegaran", nama: "Kesegaran (1-10)", bobot: 0.3, tipe: "benefit" },
-    { id: "cacat", nama: "Cacat (%)", bobot: 0.2, tipe: "cost" },
-  ]);
+function AppShell() {
+  const [currentView, setCurrentView] = useState<ViewId>("dashboard");
 
-  const updateTomat = (newList: Tomat[]) => setTomatList(newList);
-  const updateKriteria = (newList: Kriteria[]) => setKriteriaList(newList);
+  // Data efektif = suntingan sesi ini → data tersimpan → data contoh.
+  // localStorage dibaca sebagai external store sehingga bebas hydration mismatch.
+  const storedRaw = useLocalStorageRaw(STORAGE_KEY);
+  const restored = useMemo(() => parseStored(storedRaw), [storedRaw]);
 
-  const today = new Date().toLocaleDateString("id-ID", { day: 'numeric', month: 'long', year: 'numeric' });
+  const [tomatEdits, setTomatEdits] = useState<Tomat[] | null>(null);
+  const [kriteriaEdits, setKriteriaEdits] = useState<Kriteria[] | null>(null);
+  const [rowsEdit, setRowsEdit] = useState<number | null>(null);
+
+  const tomatList = tomatEdits ?? restored?.tomatList ?? SAMPLE_TOMAT;
+  const kriteriaList = kriteriaEdits ?? restored?.kriteriaList ?? KRITERIA_DEFAULT;
+  const rowsPerPage = rowsEdit ?? restored?.rowsPerPage ?? 10;
+
+  // Simpan otomatis setelah ada perubahan dari pengguna.
+  useEffect(() => {
+    if (tomatEdits === null && kriteriaEdits === null && rowsEdit === null) return;
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ tomatList, kriteriaList, rowsPerPage })
+      );
+    } catch {
+      // Penyimpanan penuh / tidak tersedia — data tetap aman di memori.
+    }
+  }, [tomatEdits, kriteriaEdits, rowsEdit, tomatList, kriteriaList, rowsPerPage]);
+
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const today = useToday(true);
+
+  const navigate = useCallback((view: ViewId) => {
+    setCurrentView(view);
+    setMobileOpen(false);
+    setUserMenuOpen(false);
+  }, []);
+
+  // Tutup drawer mobile dengan tombol Escape.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileOpen]);
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans">
-      <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
-      
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-white h-16 border-b flex items-center justify-between px-6 shrink-0">
-          <div className="flex items-center gap-4">
-            <button className="text-gray-500 hover:text-gray-700">
-              <Menu size={20} />
+    <div className="print-reset flex h-screen overflow-hidden bg-cream">
+      {/* Sidebar desktop */}
+      <aside
+        className={`print-hidden hidden shrink-0 transition-[width] duration-300 ease-in-out lg:block ${
+          collapsed ? "w-[84px]" : "w-[272px]"
+        }`}
+      >
+        <Sidebar
+          currentView={currentView}
+          onNavigate={navigate}
+          collapsed={collapsed}
+        />
+      </aside>
+
+      {/* Drawer mobile */}
+      {mobileOpen && (
+        <div className="print-hidden fixed inset-0 z-[60] lg:hidden">
+          <div
+            className="animate-fade-in absolute inset-0 bg-stone-950/55 backdrop-blur-[2px]"
+            onClick={() => setMobileOpen(false)}
+          />
+          <div className="absolute inset-y-0 left-0 w-[280px] shadow-2xl">
+            <Sidebar currentView={currentView} onNavigate={navigate} />
+            <button
+              onClick={() => setMobileOpen(false)}
+              aria-label="Tutup menu"
+              className="absolute top-5 -right-12 flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl bg-white/10 text-white ring-1 ring-white/20 backdrop-blur transition hover:bg-white/20"
+            >
+              <X size={18} />
             </button>
-            <h2 className="text-lg font-semibold capitalize text-gray-800">
-              {currentView.replace(/([A-Z])/g, ' $1').trim()}
-            </h2>
           </div>
-          <div className="flex items-center gap-6 text-sm">
-            <div className="flex items-center gap-2 text-gray-600">
-              <Calendar size={18} />
-              <span>{today}</span>
+        </div>
+      )}
+
+      <div className="print-reset flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Header */}
+        <header className="print-hidden z-30 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-stone-200/70 bg-white/80 px-4 backdrop-blur-md sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              onClick={() => setMobileOpen(true)}
+              aria-label="Buka menu navigasi"
+              className="cursor-pointer rounded-xl p-2 text-stone-500 transition hover:bg-stone-100 hover:text-stone-800 lg:hidden"
+            >
+              <Menu size={19} />
+            </button>
+            <button
+              onClick={() => setCollapsed((v) => !v)}
+              aria-label={collapsed ? "Bentangkan sidebar" : "Ciutkan sidebar"}
+              title={collapsed ? "Bentangkan sidebar" : "Ciutkan sidebar"}
+              className="hidden cursor-pointer rounded-xl p-2 text-stone-500 transition hover:bg-stone-100 hover:text-stone-800 lg:block"
+            >
+              {collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}
+            </button>
+            <div className="min-w-0">
+              <h2 className="font-display truncate text-lg font-semibold tracking-tight text-stone-900">
+                {VIEW_LABELS[currentView]}
+              </h2>
             </div>
-            <div className="flex items-center gap-2 cursor-pointer bg-gray-50 py-1.5 px-3 rounded-full border">
-              <div className="w-7 h-7 bg-gray-200 rounded-full flex items-center justify-center text-gray-500">
-                <User size={16} />
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-4">
+            {today && (
+              <div className="hidden items-center gap-2 rounded-full bg-stone-50 px-3.5 py-1.5 text-xs font-medium text-stone-500 ring-1 ring-stone-200/80 md:flex">
+                <Calendar size={14} className="text-gold-700" />
+                <span>{today}</span>
               </div>
-              <span className="font-medium text-gray-700">Administrator</span>
-              <ChevronDown size={16} className="text-gray-400" />
+            )}
+
+            {/* Menu pengguna */}
+            <div className="relative">
+              <button
+                onClick={() => setUserMenuOpen((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={userMenuOpen}
+                className="flex cursor-pointer items-center gap-2.5 rounded-full bg-white py-1.5 pr-2.5 pl-1.5 ring-1 ring-stone-200 transition hover:ring-stone-300"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-stone-800 to-stone-950 text-white">
+                  <User size={15} />
+                </span>
+                <span className="hidden text-sm font-semibold text-stone-700 sm:block">
+                  Administrator
+                </span>
+                <ChevronDown
+                  size={15}
+                  className={`text-stone-500 transition-transform ${userMenuOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {userMenuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setUserMenuOpen(false)}
+                  />
+                  <div
+                    role="menu"
+                    className="animate-scale-in absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-2xl bg-white py-1.5 shadow-[0_16px_44px_-12px_rgba(28,25,23,0.25)] ring-1 ring-stone-900/[0.07]"
+                  >
+                    <div className="border-b border-stone-100 px-4 py-3">
+                      <p className="text-sm font-semibold text-stone-800">Administrator</p>
+                      <p className="text-xs text-stone-500">admin@tomatterbaik.id</p>
+                    </div>
+                    <button
+                      role="menuitem"
+                      onClick={() => navigate("laporan")}
+                      className="flex w-full cursor-pointer items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 transition hover:bg-stone-50 hover:text-stone-900"
+                    >
+                      <FileText size={15} /> Laporan
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => navigate("pengaturan")}
+                      className="flex w-full cursor-pointer items-center gap-2.5 px-4 py-2.5 text-sm text-stone-600 transition hover:bg-stone-50 hover:text-stone-900"
+                    >
+                      <Settings size={15} /> Pengaturan
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-6">
-          {currentView === "dashboard" && <DashboardView tomatList={tomatList} kriteriaList={kriteriaList} />}
-          {currentView === "dataTomat" && <DataTomatView tomatList={tomatList} updateTomat={updateTomat} />}
-          {currentView === "kriteria" && <KriteriaView kriteriaList={kriteriaList} updateKriteria={updateKriteria} />}
-          {currentView === "penilaian" && <PenilaianView tomatList={tomatList} kriteriaList={kriteriaList} updateTomat={updateTomat} />}
-          {currentView === "perhitunganSaw" && <PerhitunganSAWView tomatList={tomatList} kriteriaList={kriteriaList} />}
-          {currentView === "hasilRanking" && <HasilRankingView tomatList={tomatList} kriteriaList={kriteriaList} />}
-          {currentView === "galeri" && <GaleriTomatView />}
-          {currentView === "importJson" && <ImportJsonView updateTomat={updateTomat} />}
-          {currentView === "laporan" && (
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-xl font-semibold text-gray-800">Laporan</h2>
-              <p className="text-gray-600 mt-2">Halaman laporan dalam pengembangan.</p>
-            </div>
-          )}
-          {currentView === "pengaturan" && (
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-xl font-semibold text-gray-800">Pengaturan</h2>
-              <p className="text-gray-600 mt-2">Halaman pengaturan dalam pengembangan.</p>
-            </div>
-          )}
+        {/* Konten */}
+        <main className="print-reset flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          <div key={currentView} className="animate-fade-up mx-auto max-w-[1400px]">
+            {currentView === "dashboard" && (
+              <DashboardView
+                tomatList={tomatList}
+                kriteriaList={kriteriaList}
+                onNavigate={navigate}
+              />
+            )}
+            {currentView === "dataTomat" && (
+              <DataTomatView
+                tomatList={tomatList}
+                kriteriaList={kriteriaList}
+                updateTomat={setTomatEdits}
+                rowsPerPage={rowsPerPage}
+              />
+            )}
+            {currentView === "kriteria" && (
+              <KriteriaView
+                kriteriaList={kriteriaList}
+                updateKriteria={setKriteriaEdits}
+              />
+            )}
+            {currentView === "penilaian" && (
+              <PenilaianView
+                tomatList={tomatList}
+                kriteriaList={kriteriaList}
+                updateTomat={setTomatEdits}
+                rowsPerPage={rowsPerPage}
+              />
+            )}
+            {currentView === "galeri" && <GaleriTomatView />}
+            {currentView === "importJson" && (
+              <ImportJsonView
+                tomatList={tomatList}
+                updateTomat={setTomatEdits}
+                onNavigate={navigate}
+              />
+            )}
+            {currentView === "perhitunganSaw" && (
+              <PerhitunganSAWView
+                tomatList={tomatList}
+                kriteriaList={kriteriaList}
+              />
+            )}
+            {currentView === "hasilRanking" && (
+              <HasilRankingView
+                tomatList={tomatList}
+                kriteriaList={kriteriaList}
+              />
+            )}
+            {currentView === "laporan" && (
+              <LaporanView tomatList={tomatList} kriteriaList={kriteriaList} />
+            )}
+            {currentView === "pengaturan" && (
+              <PengaturanView
+                tomatList={tomatList}
+                kriteriaList={kriteriaList}
+                updateTomat={setTomatEdits}
+                updateKriteria={setKriteriaEdits}
+                rowsPerPage={rowsPerPage}
+                setRowsPerPage={setRowsEdit}
+              />
+            )}
+          </div>
         </main>
       </div>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <ToastProvider>
+      <ConfirmProvider>
+        <AppShell />
+      </ConfirmProvider>
+    </ToastProvider>
   );
 }

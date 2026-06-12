@@ -1,44 +1,71 @@
+"use client";
+
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
 interface PaginationProps {
   currentPage: number;
   totalPages: number;
   onPageChange: (page: number) => void;
 }
 
-export default function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps) {
-  const maxVisible = 5;
-  let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-  let endPage = Math.min(totalPages, startPage + maxVisible - 1);
-  if (endPage - startPage + 1 < maxVisible) startPage = Math.max(1, endPage - maxVisible + 1);
+/** Susun nomor halaman dengan elipsis: 1 … 4 5 6 … 20 */
+function buildPages(current: number, total: number): (number | "...")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | "...")[] = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  if (start > 2) pages.push("...");
+  for (let p = start; p <= end; p++) pages.push(p);
+  if (end < total - 1) pages.push("...");
+  pages.push(total);
+  return pages;
+}
 
-  const pages = Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i);
+export default function Pagination({
+  currentPage,
+  totalPages,
+  onPageChange,
+}: PaginationProps) {
+  if (totalPages <= 1) return null;
 
   return (
-    <div className="flex gap-1 flex-wrap">
+    <nav aria-label="Navigasi halaman" className="flex items-center gap-1">
       <button
         onClick={() => onPageChange(currentPage - 1)}
         disabled={currentPage === 1}
-        className="px-3 py-1 rounded border disabled:opacity-50"
+        aria-label="Halaman sebelumnya"
+        className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-stone-500 transition hover:bg-stone-100 hover:text-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        Prev
+        <ChevronLeft size={16} />
       </button>
-      {pages.map((p) => (
-        <button
-          key={p}
-          onClick={() => onPageChange(p)}
-          className={`px-3 py-1 rounded border ${
-            p === currentPage ? "bg-green-600 text-white" : "bg-white"
-          }`}
-        >
-          {p}
-        </button>
-      ))}
+      {buildPages(currentPage, totalPages).map((page, idx) =>
+        page === "..." ? (
+          <span key={`gap-${idx}`} className="px-1.5 text-xs text-stone-500">
+            …
+          </span>
+        ) : (
+          <button
+            key={page}
+            onClick={() => onPageChange(page)}
+            aria-current={page === currentPage ? "page" : undefined}
+            className={`h-9 min-w-9 cursor-pointer rounded-lg px-2 text-xs font-semibold transition ${
+              page === currentPage
+                ? "bg-stone-900 text-white shadow-sm"
+                : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"
+            }`}
+          >
+            {page}
+          </button>
+        )
+      )}
       <button
         onClick={() => onPageChange(currentPage + 1)}
         disabled={currentPage === totalPages}
-        className="px-3 py-1 rounded border disabled:opacity-50"
+        aria-label="Halaman berikutnya"
+        className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-stone-500 transition hover:bg-stone-100 hover:text-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        Next
+        <ChevronRight size={16} />
       </button>
-    </div>
+    </nav>
   );
 }

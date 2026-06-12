@@ -1,8 +1,9 @@
 "use client";
 
+import { ReactNode } from "react";
 import {
   LayoutDashboard,
-  Apple,
+  Cherry,
   Scale,
   ClipboardList,
   Import,
@@ -10,105 +11,140 @@ import {
   Trophy,
   FileText,
   Settings,
-  User,
-  ChevronDown,
-  Image, // <-- tambahkan ini
+  Image as ImageIcon,
 } from "lucide-react";
+import { ViewId } from "@/lib/types";
+import TomatIllustration from "./TomatIllustration";
 
 interface SidebarProps {
-  currentView: string;
-  setCurrentView: (view: string) => void;
+  currentView: ViewId;
+  onNavigate: (view: ViewId) => void;
+  collapsed?: boolean;
 }
 
-export default function Sidebar({ currentView, setCurrentView }: SidebarProps) {
-  const menuItem = (id: string, label: string, icon: React.ReactNode) => (
-    <button
-      onClick={() => setCurrentView(id)}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-left text-sm transition-colors ${
-        currentView === id
-          ? "bg-[#D92D20] text-white font-medium shadow-md"
-          : "text-gray-300 hover:bg-slate-800 hover:text-white"
-      }`}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
-  );
+type MenuEntry = { id: ViewId; label: string; icon: ReactNode };
+
+const DASHBOARD: MenuEntry = {
+  id: "dashboard",
+  label: "Dashboard",
+  icon: <LayoutDashboard size={17} />,
+};
+
+const SECTIONS: { title: string; items: MenuEntry[] }[] = [
+  {
+    title: "Data Master",
+    items: [
+      { id: "dataTomat", label: "Data Tomat", icon: <Cherry size={17} /> },
+      { id: "kriteria", label: "Kriteria & Bobot", icon: <Scale size={17} /> },
+      { id: "penilaian", label: "Penilaian", icon: <ClipboardList size={17} /> },
+      { id: "galeri", label: "Galeri Tomat", icon: <ImageIcon size={17} /> },
+    ],
+  },
+  {
+    title: "Proses",
+    items: [
+      { id: "importJson", label: "Import JSON", icon: <Import size={17} /> },
+      { id: "perhitunganSaw", label: "Perhitungan SAW", icon: <Calculator size={17} /> },
+      { id: "hasilRanking", label: "Hasil Ranking", icon: <Trophy size={17} /> },
+    ],
+  },
+  {
+    title: "Lainnya",
+    items: [
+      { id: "laporan", label: "Laporan", icon: <FileText size={17} /> },
+      { id: "pengaturan", label: "Pengaturan", icon: <Settings size={17} /> },
+    ],
+  },
+];
+
+export default function Sidebar({
+  currentView,
+  onNavigate,
+  collapsed = false,
+}: SidebarProps) {
+  const navItem = (item: MenuEntry) => {
+    const active = currentView === item.id;
+    return (
+      <button
+        key={item.id}
+        onClick={() => onNavigate(item.id)}
+        title={collapsed ? item.label : undefined}
+        aria-current={active ? "page" : undefined}
+        className={`flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-colors duration-150 ${
+          collapsed ? "justify-center px-0" : ""
+        } ${
+          active
+            ? "bg-gradient-to-r from-rose-700 to-rose-800 text-white shadow-[0_4px_12px_-4px_rgba(159,18,57,0.5)]"
+            : "text-stone-400 hover:bg-white/[0.06] hover:text-white"
+        }`}
+      >
+        <span className="shrink-0">{item.icon}</span>
+        {!collapsed && <span className="truncate">{item.label}</span>}
+      </button>
+    );
+  };
 
   return (
-    <aside className="w-64 bg-[#0F172A] text-white flex flex-col h-full shrink-0">
-      <div className="p-6 flex items-center gap-3">
-        <div className="text-3xl">🍅</div>
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">
-            Tomat <span className="text-[#D92D20]">Terbaik</span>
-          </h1>
-          <p className="text-[10px] text-gray-400 font-medium tracking-wider mt-0.5">
-            SPK METODE SAW
-          </p>
+    <div className="flex h-full flex-col overflow-hidden bg-stone-950 text-white">
+      {/* Brand */}
+      <div
+        className={`flex items-center gap-3 px-5 pt-5 pb-4 ${
+          collapsed ? "justify-center px-0" : ""
+        }`}
+      >
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-700 to-rose-950 ring-1 ring-white/10">
+          <TomatIllustration className="h-6 w-6" />
         </div>
+        {!collapsed && (
+          <div className="min-w-0">
+            <h1 className="text-[15px] leading-tight font-semibold tracking-tight whitespace-nowrap">
+              Tomat <span className="text-gold-300">Terbaik</span>
+            </h1>
+            <p className="text-[10px] font-medium tracking-[0.14em] text-stone-500 uppercase">
+              SPK Metode SAW
+            </p>
+          </div>
+        )}
       </div>
 
-      <nav className="flex-1 px-4 space-y-6 overflow-y-auto mt-2">
-        {menuItem("dashboard", "Dashboard", <LayoutDashboard size={18} />)}
+      {/* Navigasi — scrollbar disembunyikan, konten dipadatkan agar muat */}
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {navItem(DASHBOARD)}
 
-        <div>
-          <p className="px-4 text-[11px] font-semibold text-gray-500 uppercase mb-2">
-            Data Master
-          </p>
-          <div className="space-y-1">
-            {menuItem("dataTomat", "Data Tomat (Alternatif)", <Apple size={18} />)}
-            {menuItem("kriteria", "Kriteria", <Scale size={18} />)}
-            {menuItem("penilaian", "Penilaian", <ClipboardList size={18} />)}
-            {/* Menu Galeri Tomat */}
-            {menuItem("galeri", "Galeri Tomat", <Image size={18} />)}
+        {SECTIONS.map((section) => (
+          <div key={section.title}>
+            {!collapsed ? (
+              <p className="mb-1.5 px-3 text-[10px] font-semibold tracking-[0.12em] text-stone-500 uppercase">
+                {section.title}
+              </p>
+            ) : (
+              <div className="mx-2 mb-2 h-px bg-white/[0.07]" />
+            )}
+            <div className="space-y-0.5">{section.items.map(navItem)}</div>
           </div>
-        </div>
-
-        <div>
-          <p className="px-4 text-[11px] font-semibold text-gray-500 uppercase mb-2">
-            Proses
-          </p>
-          <div className="space-y-1">
-            {menuItem("importJson", "Import JSON", <Import size={18} />)}
-            {menuItem("perhitunganSaw", "Perhitungan SAW", <Calculator size={18} />)}
-            {menuItem("hasilRanking", "Hasil Ranking", <Trophy size={18} />)}
-          </div>
-        </div>
-
-        <div>
-          <p className="px-4 text-[11px] font-semibold text-gray-500 uppercase mb-2">
-            Laporan
-          </p>
-          <div className="space-y-1">
-            {menuItem("laporan", "Laporan", <FileText size={18} />)}
-          </div>
-        </div>
-
-        <div>
-          <p className="px-4 text-[11px] font-semibold text-gray-500 uppercase mb-2">
-            Pengaturan
-          </p>
-          <div className="space-y-1">
-            {menuItem("pengaturan", "Pengaturan", <Settings size={18} />)}
-          </div>
-        </div>
+        ))}
       </nav>
 
-      <div className="p-4 mx-4 mb-4 mt-4 bg-slate-800 rounded-xl flex items-center justify-between border border-slate-700">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-[#D92D20] flex items-center justify-center text-sm font-bold">
-            A
-          </div>
-          <div>
-            <p className="text-sm font-medium leading-none mb-1">Administrator</p>
-            <p className="text-[10px] text-gray-400 leading-none">
+      {/* Pengguna */}
+      <div
+        className={`flex items-center gap-2.5 border-t border-white/[0.07] px-5 py-3.5 ${
+          collapsed ? "justify-center px-0" : ""
+        }`}
+      >
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold-300 to-gold-600 text-xs font-bold text-stone-900">
+          A
+        </div>
+        {!collapsed && (
+          <div className="min-w-0">
+            <p className="truncate text-[13px] leading-tight font-medium">
+              Administrator
+            </p>
+            <p className="truncate text-[11px] text-stone-500">
               admin@tomatterbaik.id
             </p>
           </div>
-        </div>
-        <ChevronDown size={16} className="text-gray-400" />
+        )}
       </div>
-    </aside>
+    </div>
   );
 }
